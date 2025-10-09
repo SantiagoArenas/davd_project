@@ -1,0 +1,10 @@
+torch>=1.13.0
+torchvision
+transformers
+datasets
+accelerate
+scikit-learn
+Pillow
+tqdm
+numpy
+wandb
