@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from ctypes.util import test
 import os
 import random
 from collections import defaultdict
@@ -31,35 +32,41 @@ def gather_images(root: str) -> List[Tuple[str, str]]:
     return pairs
 
 
-def stratified_split(pairs: List[Tuple[str, str]], train_frac: float, val_frac: float, test_frac: float, seed: int = 42):
-    # Group by label
-    by_label = defaultdict(list)
-    for path, label in pairs:
-        by_label[label].append(path)
+def stratified_split(pairs: List[Tuple[str,str]],
+                     train_frac: float, val_frac: float, test_frac: float,
+                     seed: int = 0):
+    assert abs(train_frac + val_frac + test_frac - 1.0) < 1e-6
+    by_cls = defaultdict(list)
+    for path, cls in pairs:
+        by_cls[cls].append((path, cls))
 
+    rng = random.Random(seed)
     train, val, test = [], [], []
-    for label, paths in by_label.items():
-        if len(paths) < 3:
-            # small class: put 60/20/20 by rounding
-            t, v, te = [], [], []
-            for i, p in enumerate(paths):
-                if i % 5 < 3:
-                    t.append(p)
-                elif i % 5 == 3:
-                    v.append(p)
-                else:
-                    te.append(p)
-        else:
-            p_train = train_frac / (train_frac + val_frac + test_frac)
-            p_temp = 1 - p_train
-            t, temp = train_test_split(paths, train_size=p_train, random_state=seed, shuffle=True)
-            # split temp into val/test
-            v_size = val_frac / (val_frac + test_frac)
-            v, te = train_test_split(temp, train_size=v_size, random_state=seed, shuffle=True)
 
-        train += [(p, label) for p in t]
-        val += [(p, label) for p in v]
-        test += [(p, label) for p in te]
+    for cls, items in by_cls.items():
+        n = len(items)
+        rng.shuffle(items)
+
+        if n == 1:
+            # keep single sample in train so class is represented
+            train.extend(items)
+            continue
+
+        n_train = max(1, int(round(n * train_frac)))
+        if n_train >= n:
+            n_train = n - 1  # reserve at least one for val/test if possible
+        r = n - n_train
+        # allocate remaining proportionally between val/test
+        if val_frac + test_frac == 0:
+            n_val = 0
+        else:
+            n_val = int(round(r * (val_frac / (val_frac + test_frac))))
+        n_test = r - n_val
+
+        # slice
+        train.extend(items[:n_train])
+        val.extend(items[n_train:n_train + n_val])
+        test.extend(items[n_train + n_val:])
 
     return train, val, test
 
@@ -88,9 +95,16 @@ def main():
 
     train, val, test = stratified_split(pairs, args.train_frac, args.val_frac, args.test_frac, seed=args.seed)
 
-    write_csv(train, os.path.join(args.out_dir, 'train.csv'))
-    write_csv(val, os.path.join(args.out_dir, 'val.csv'))
-    write_csv(test, os.path.join(args.out_dir, 'test.csv'))
+    # after stratified_split:
+    def write_split(pairs, path):
+        with open(path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['image_path', 'label'])  # header
+            writer.writerows(pairs)  # each pair is (image_path, label)
+
+        write_split(train, 'data/splits/train.csv')
+        write_split(val, 'data/splits/val.csv')
+        write_split(test, 'data/splits/test.csv')
 
     print(f'Wrote {len(train)} train, {len(val)} val, {len(test)} test to {args.out_dir}')
 

@@ -11,3 +11,4 @@ The data found is extensive
 
 ## To do
 Identify how the species are categorized.
+Download Hugginface transformers, VIT models... Image transfer learning
